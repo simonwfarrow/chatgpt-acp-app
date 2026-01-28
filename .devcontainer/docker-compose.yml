@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    container_name: chatgpt-acp-app
+    volumes:
+      - ..:/workspace/chatgpt-acp-app
+      - ~/.claude:/root/.claude
+      - /workspace/chatgpt-acp-app/node_modules
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=development
+    stdin_open: true
+    tty: true
+    working_dir: /workspace/chatgpt-acp-app
+    command: npm run dev

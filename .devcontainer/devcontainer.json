@@ -1,0 +1,40 @@
+{
+	"name": "chatgpt-acp-app",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"workspaceFolder": "/workspace/chatgpt-acp-app",
+	"containerName": "chatgpt-acp-app",
+	"mounts": [
+		"source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind,consistency=cached"
+	],
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {},
+		"ghcr.io/devcontainers/features/github-cli:1": {},
+		"ghcr.io/devcontainers/features/node:1": {
+			"version": "lts"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"biomejs.biome",
+				"esbenp.prettier-vscode"
+			],
+			"settings": {
+				"editor.defaultFormatter": "biomejs.biome",
+				"editor.formatOnSave": true,
+				"editor.codeActionsOnSave": {
+					"quickfix.biome": "explicit",
+					"source.organizeImports.biome": "explicit"
+				}
+			}
+		}
+	},
+	"forwardPorts": [8787],
+	"postCreateCommand": "bash /workspace/chatgpt-acp-app/.devcontainer/setup.sh",
+	"remoteUser": "root",
+	"overrideCommand": true
+}
