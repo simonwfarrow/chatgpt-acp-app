@@ -1,55 +1,178 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
+import { SHOP_HTML, CHALLENGE_CONTENT, PRODUCTS } from "./constants";
+import { addToCartSchema, completeCheckoutSchema } from "./types";
 
-// Define our MCP agent with tools
-export class MyMCP extends McpAgent {
+export class ShopAgent extends McpAgent {
+	// @ts-ignore
 	server = new McpServer({
-		name: "Authless Calculator",
-		version: "1.0.0",
+		name: "shop-app",
+		version: "0.1.0",
 	});
 
-	async init() {
-		// Simple addition tool
-		this.server.tool("add", { a: z.number(), b: z.number() }, async ({ a, b }) => ({
-			content: [{ type: "text", text: String(a + b) }],
-		}));
+	cart: string[] = [];
 
-		// Calculator tool with multiple operations
-		this.server.tool(
-			"calculate",
+	private replyWithCart(message?: string) {
+		return {
+			content: message ? [{ type: "text" as const, text: message }] : [],
+			structuredContent: { cart: this.cart },
+		};
+	}
+
+	async init() {
+		this.server.registerResource(
+			"Open Worldpay Swag Shop",
+			"ui://widget/shop.html",
+			{},
+			async () => ({
+				contents: [
+					{
+						uri: "ui://widget/shop.html",
+						mimeType: "text/html+skybridge",
+						text: SHOP_HTML,
+						_meta: { "openai/widgetPrefersBorder": true },
+					},
+				],
+			})
+		);
+
+		this.server.registerTool(
+			"add_to_cart",
 			{
-				operation: z.enum(["add", "subtract", "multiply", "divide"]),
-				a: z.number(),
-				b: z.number(),
+				title: "Add to cart",
+				description: "Adds a product to the cart by ID.",
+				inputSchema: addToCartSchema.shape,
+				_meta: {
+					"openai/outputTemplate": "ui://widget/shop.html",
+					"openai/toolInvocation/invoking": "Adding to cart",
+					"openai/toolInvocation/invoked": "Added to cart",
+				},
 			},
-			async ({ operation, a, b }) => {
-				let result: number;
-				switch (operation) {
-					case "add":
-						result = a + b;
-						break;
-					case "subtract":
-						result = a - b;
-						break;
-					case "multiply":
-						result = a * b;
-						break;
-					case "divide":
-						if (b === 0)
-							return {
-								content: [
-									{
-										type: "text",
-										text: "Error: Cannot divide by zero",
-									},
-								],
-							};
-						result = a / b;
-						break;
+			async (args: z.infer<typeof addToCartSchema>) => {
+				const productId = args.productId;
+				const product = PRODUCTS.find((p) => p.id === productId);
+
+				if (!product) {
+					return {
+						content: [{ type: "text" as const, text: `Product "${productId}" not found.` }],
+						isError: true,
+					};
 				}
-				return { content: [{ type: "text", text: String(result) }] };
+
+				this.cart.push(productId);
+				return this.replyWithCart(`Added ${product.name} to cart.`);
+			}
+		);
+
+		this.server.registerTool(
+			"reset_cart",
+			{
+				title: "Reset cart",
+				description: "Clears the shopping cart.",
+				inputSchema: {},
+				_meta: {
+					"openai/outputTemplate": "ui://widget/shop.html",
+					"openai/toolInvocation/invoking": "Resetting cart",
+					"openai/toolInvocation/invoked": "Reset cart",
+				},
 			},
+			async () => {
+				this.cart = [];
+				return this.replyWithCart("Cart cleared.");
+			}
+		);
+
+		this.server.registerTool(
+			"create_checkout_session",
+			{
+				title: "Create checkout session",
+				description: "Creates a checkout session for the current cart.",
+				inputSchema: {},
+				_meta: {
+					"openai/toolInvocation/invoking": "Creating checkout session",
+					"openai/toolInvocation/invoked": "Created checkout session",
+				},
+			},
+			async () => {
+				const line_items = this.cart.map((id, index) => {
+					const p = PRODUCTS.find((prod) => prod.id === id);
+					if (!p) return null;
+					const amount = Math.round(p.price * 100);
+					return {
+						id: `li_${index}_${Date.now()}`,
+						quantity: 1,
+						base_amount: amount,
+						subtotal: amount,
+						total_amount: amount,
+						total: amount,
+						item: {
+							id: p.id,
+							name: p.name,
+							quantity: 1,
+							description: p.name,
+							price: {
+								amount: amount,
+								currency: "USD"
+							}
+						}
+					};
+				}).filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+				const totalAmount = line_items.reduce((sum, item) => sum + item.base_amount, 0);
+
+				const session = {
+					id: `sess_${Math.random().toString(36).slice(2)}`,
+					payment_provider: {
+						provider: "worldpay",
+						merchant_id: this.env.MERCHANT_ID,
+						supported_payment_methods: ["card"],
+					},
+					status: "ready_for_payment",
+					currency: "USD",
+					payment_mode: "test",
+					line_items: line_items,
+					totals: [
+						{ type: "total", display_text: "Total", amount: totalAmount },
+					],
+					links: [
+						{ type: "terms_of_use", url: "https://example.com/terms" },
+						{ type: "privacy_policy", url: "https://example.com/privacy" },
+					],
+				};
+
+				return {
+					content: [{ type: "text" as const, text: "Checkout session created" }],
+					structuredContent: session,
+				};
+			}
+		);
+
+		this.server.registerTool(
+			"complete_checkout",
+			{
+				title: "Complete checkout",
+				description: "Handles success callback and returns order confirmation.",
+				inputSchema: completeCheckoutSchema.shape,
+				_meta: {
+					"openai/toolInvocation/invoking": "Completing checkout",
+					"openai/toolInvocation/invoked": "Completed checkout",
+				},
+			},
+			async (args: z.infer<typeof completeCheckoutSchema>) => {
+				this.cart = [];
+				return {
+					content: [{ type: "text" as const, text: "Order confirmed" }],
+					structuredContent: {
+						status: "confirmed",
+						order: {
+							id: `order_${Math.random().toString(36).slice(2)}`,
+							checkout_session_id: args.checkout_session_id,
+							status: "completed",
+						},
+					},
+				};
+			}
 		);
 	}
 }
@@ -59,7 +182,15 @@ export default {
 		const url = new URL(request.url);
 
 		if (url.pathname === "/mcp") {
-			return MyMCP.serve("/mcp").fetch(request, env, ctx);
+			return ShopAgent.serve("/mcp").fetch(request, env, ctx);
+		}
+
+		if (url.pathname === "/") {
+			return new Response("Shop MCP server", { headers: { "content-type": "text/plain" } });
+		}
+
+		if (url.pathname === "/.well-known/openai-apps-challenge") {
+			return new Response(CHALLENGE_CONTENT, { headers: { "content-type": "text/plain" } });
 		}
 
 		return new Response("Not found", { status: 404 });
