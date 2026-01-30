@@ -190,7 +190,7 @@ export default {
 		}
 
 		if (url.pathname === "/.well-known/openai-apps-challenge") {
-			return new Response(this.env.CHALLENGE_CONTENT, {
+			return new Response(env.CHALLENGE_CONTENT, {
 				headers: { "content-type": "text/plain" },
 			});
 		}
