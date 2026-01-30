@@ -11,7 +11,15 @@ import { addToCartSchema, completeCheckoutSchema } from "./types";
 
 const STATE_KEY = "mcp-transport-state";
 
-export class MyMCP extends Agent<Env> {
+type ShopState = {
+	cart: string[];
+};
+
+export class MyMCP extends Agent<Env, ShopState> {
+	initialState: ShopState = {
+		cart: [],
+	};
+
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
@@ -88,10 +96,10 @@ export class MyMCP extends Agent<Env> {
 					};
 				}
 
-				const cart = await this.getCart();
-				cart.push(productId);
-				await this.saveCart(cart);
-				return this.replyWithCart(cart, `Added ${product.name} to cart.`);
+				const cart = this.state.cart;
+				const newCart = [...cart, productId];
+				this.setState({ ...this.state, cart: newCart });
+				return this.replyWithCart(newCart, `Added ${product.name} to cart.`);
 			},
 		);
 
@@ -108,7 +116,7 @@ export class MyMCP extends Agent<Env> {
 				},
 			},
 			async () => {
-				await this.saveCart([]);
+				this.setState({ ...this.state, cart: [] });
 				return this.replyWithCart([], "Cart cleared.");
 			},
 		);
@@ -125,7 +133,7 @@ export class MyMCP extends Agent<Env> {
 				},
 			},
 			async () => {
-				const cart = await this.getCart();
+				const cart = this.state.cart;
 				const line_items = cart
 					.map((id, index) => {
 						const p = PRODUCTS.find((prod) => prod.id === id);
@@ -207,7 +215,7 @@ export class MyMCP extends Agent<Env> {
 				},
 			},
 			async (args: z.infer<typeof completeCheckoutSchema>) => {
-				await this.saveCart([]);
+				this.setState({ ...this.state, cart: [] });
 				return {
 					content: [{ type: "text" as const, text: "Order confirmed" }],
 					structuredContent: {
@@ -227,14 +235,6 @@ export class MyMCP extends Agent<Env> {
 		return createMcpHandler(this.server as any, {
 			transport: this.transport,
 		})(request, this.env, this.ctx as unknown as ExecutionContext);
-	}
-
-	private async getCart(): Promise<string[]> {
-		return (await this.ctx.storage.get<string[]>("cart")) || [];
-	}
-
-	private async saveCart(cart: string[]) {
-		await this.ctx.storage.put("cart", cart);
 	}
 
 	private replyWithCart(cart: string[], message?: string) {
@@ -263,7 +263,7 @@ export default {
 
 		const sessionId =
 			request.headers.get("mcp-session-id") ?? crypto.randomUUID();
-		const agent = await getAgentByName(env.MCP_OBJECT, "global-session"); // Use a fixed session ID for now
+		const agent = await getAgentByName(env.MCP_OBJECT, sessionId); 
 		return await agent.onMcpRequest(request);
 	},
 };
