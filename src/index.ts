@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
-import { z } from "zod";
-import { SHOP_HTML, CHALLENGE_CONTENT, PRODUCTS } from "./constants";
+import type { z } from "zod";
+import { CHALLENGE_CONTENT, PRODUCTS, SHOP_HTML } from "./constants";
 import { addToCartSchema, completeCheckoutSchema } from "./types";
 
 export class MyMCP extends McpAgent {
-	// @ts-ignore
+	// @ts-expect-error
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
@@ -31,18 +31,22 @@ export class MyMCP extends McpAgent {
 						uri: "ui://widget/shop.html",
 						mimeType: "text/html+skybridge",
 						text: SHOP_HTML,
-						_meta: { "openai/widgetPrefersBorder": true ,
-          						"openai/widgetDomain": "https://chatgpt-acp-app.simonwfarrow.workers.dev",
-         						 "openai/widgetCSP": {
-									connect_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example API domain
-									resource_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example CDN allowlist
-									
-								}
+						_meta: {
+							"openai/widgetPrefersBorder": true,
+							"openai/widgetDomain":
+								"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+							"openai/widgetCSP": {
+								connect_domains: [
+									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+								], // example API domain
+								resource_domains: [
+									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+								], // example CDN allowlist
 							},
 						},
 					},
 				],
-			})
+			}),
 		);
 
 		this.server.registerTool(
@@ -63,14 +67,19 @@ export class MyMCP extends McpAgent {
 
 				if (!product) {
 					return {
-						content: [{ type: "text" as const, text: `Product "${productId}" not found.` }],
+						content: [
+							{
+								type: "text" as const,
+								text: `Product "${productId}" not found.`,
+							},
+						],
 						isError: true,
 					};
 				}
 
 				this.cart.push(productId);
 				return this.replyWithCart(`Added ${product.name} to cart.`);
-			}
+			},
 		);
 
 		this.server.registerTool(
@@ -88,7 +97,7 @@ export class MyMCP extends McpAgent {
 			async () => {
 				this.cart = [];
 				return this.replyWithCart("Cart cleared.");
-			}
+			},
 		);
 
 		this.server.registerTool(
@@ -103,31 +112,36 @@ export class MyMCP extends McpAgent {
 				},
 			},
 			async () => {
-				const line_items = this.cart.map((id, index) => {
-					const p = PRODUCTS.find((prod) => prod.id === id);
-					if (!p) return null;
-					const amount = Math.round(p.price * 100);
-					return {
-						id: `li_${index}_${Date.now()}`,
-						quantity: 1,
-						base_amount: amount,
-						subtotal: amount,
-						total_amount: amount,
-						total: amount,
-						item: {
-							id: p.id,
-							name: p.name,
+				const line_items = this.cart
+					.map((id, index) => {
+						const p = PRODUCTS.find((prod) => prod.id === id);
+						if (!p) return null;
+						const amount = Math.round(p.price * 100);
+						return {
+							id: `li_${index}_${Date.now()}`,
 							quantity: 1,
-							description: p.name,
-							price: {
-								amount: amount,
-								currency: "USD"
-							}
-						}
-					};
-				}).filter((item): item is NonNullable<typeof item> => Boolean(item));
+							base_amount: amount,
+							subtotal: amount,
+							total_amount: amount,
+							total: amount,
+							item: {
+								id: p.id,
+								name: p.name,
+								quantity: 1,
+								description: p.name,
+								price: {
+									amount: amount,
+									currency: "USD",
+								},
+							},
+						};
+					})
+					.filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-				const totalAmount = line_items.reduce((sum, item) => sum + item.base_amount, 0);
+				const totalAmount = line_items.reduce(
+					(sum, item) => sum + item.base_amount,
+					0,
+				);
 
 				const session = {
 					id: `sess_${Math.random().toString(36).slice(2)}`,
@@ -150,10 +164,12 @@ export class MyMCP extends McpAgent {
 				};
 
 				return {
-					content: [{ type: "text" as const, text: "Checkout session created" }],
+					content: [
+						{ type: "text" as const, text: "Checkout session created" },
+					],
 					structuredContent: session,
 				};
-			}
+			},
 		);
 
 		this.server.registerTool(
@@ -180,7 +196,7 @@ export class MyMCP extends McpAgent {
 						},
 					},
 				};
-			}
+			},
 		);
 	}
 }
@@ -194,11 +210,15 @@ export default {
 		}
 
 		if (url.pathname === "/") {
-			return new Response("Shop MCP server", { headers: { "content-type": "text/plain" } });
+			return new Response("Shop MCP server", {
+				headers: { "content-type": "text/plain" },
+			});
 		}
 
 		if (url.pathname === "/.well-known/openai-apps-challenge") {
-			return new Response(CHALLENGE_CONTENT, { headers: { "content-type": "text/plain" } });
+			return new Response(CHALLENGE_CONTENT, {
+				headers: { "content-type": "text/plain" },
+			});
 		}
 
 		return new Response("Not found", { status: 404 });
