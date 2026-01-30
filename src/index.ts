@@ -4,7 +4,7 @@ import { z } from "zod";
 import { SHOP_HTML, CHALLENGE_CONTENT, PRODUCTS } from "./constants";
 import { addToCartSchema, completeCheckoutSchema } from "./types";
 
-export class ShopAgent extends McpAgent {
+export class MyMCP extends McpAgent {
 	// @ts-ignore
 	server = new McpServer({
 		name: "shop-app",
@@ -182,7 +182,7 @@ export default {
 		const url = new URL(request.url);
 
 		if (url.pathname === "/mcp") {
-			return ShopAgent.serve("/mcp").fetch(request, env, ctx);
+			return MyMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
 		if (url.pathname === "/") {
