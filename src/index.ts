@@ -263,8 +263,7 @@ export default {
 
 		const sessionId =
 			request.headers.get("mcp-session-id") ?? crypto.randomUUID();
-		const agent = await getAgentByName(env.MCP_OBJECT, sessionId);
-
+		const agent = await getAgentByName(env.MCP_OBJECT, "global-session"); // Use a fixed session ID for now
 		return await agent.onMcpRequest(request);
 	},
 };
