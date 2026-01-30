@@ -100,6 +100,7 @@ export class MyMCP extends Agent<Env> {
 					"Creates a checkout session with pre-selected items (Hoodie and T-Shirt).",
 				inputSchema: {},
 				_meta: {
+					"openai/outputTemplate": "ui://widget/shop.html",
 					"openai/toolInvocation/invoking": "Creating checkout session",
 					"openai/toolInvocation/invoked": "Created checkout session",
 				},
