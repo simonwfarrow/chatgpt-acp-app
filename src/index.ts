@@ -4,19 +4,25 @@ import type { z } from "zod";
 import { CHALLENGE_CONTENT, PRODUCTS, SHOP_HTML } from "./constants";
 import { addToCartSchema, completeCheckoutSchema } from "./types";
 
-export class MyMCP extends McpAgent {
+export class MyMCP extends McpAgent<Env, DurableObjectState> {
 	// @ts-expect-error
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
 	});
 
-	cart: string[] = [];
+	private async getCart(): Promise<string[]> {
+		return (await this.state.storage.get<string[]>("cart")) || [];
+	}
 
-	private replyWithCart(message?: string) {
+	private async saveCart(cart: string[]) {
+		await this.state.storage.put("cart", cart);
+	}
+
+	private replyWithCart(cart: string[], message?: string) {
 		return {
 			content: message ? [{ type: "text" as const, text: message }] : [],
-			structuredContent: { cart: this.cart },
+			structuredContent: { cart: cart },
 		};
 	}
 
@@ -77,8 +83,10 @@ export class MyMCP extends McpAgent {
 					};
 				}
 
-				this.cart.push(productId);
-				return this.replyWithCart(`Added ${product.name} to cart.`);
+				const cart = await this.getCart();
+				cart.push(productId);
+				await this.saveCart(cart);
+				return this.replyWithCart(cart, `Added ${product.name} to cart.`);
 			},
 		);
 
@@ -95,8 +103,8 @@ export class MyMCP extends McpAgent {
 				},
 			},
 			async () => {
-				this.cart = [];
-				return this.replyWithCart("Cart cleared.");
+				await this.saveCart([]);
+				return this.replyWithCart([], "Cart cleared.");
 			},
 		);
 
@@ -112,7 +120,8 @@ export class MyMCP extends McpAgent {
 				},
 			},
 			async () => {
-				const line_items = this.cart
+				const cart = await this.getCart();
+				const line_items = cart
 					.map((id, index) => {
 						const p = PRODUCTS.find((prod) => prod.id === id);
 						if (!p) return null;
@@ -193,7 +202,7 @@ export class MyMCP extends McpAgent {
 				},
 			},
 			async (args: z.infer<typeof completeCheckoutSchema>) => {
-				this.cart = [];
+				await this.saveCart([]);
 				return {
 					content: [{ type: "text" as const, text: "Order confirmed" }],
 					structuredContent: {
