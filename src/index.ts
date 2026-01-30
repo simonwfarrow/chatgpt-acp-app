@@ -143,6 +143,15 @@ export class MyMCP extends McpAgent {
 					0,
 				);
 
+				if (line_items.length === 0 || totalAmount === 0) {
+					return {
+						content: [
+							{ type: "text" as const, text: "Cart is empty or invalid." },
+						],
+						isError: true,
+					};
+				}
+
 				const session = {
 					id: `sess_${Math.random().toString(36).slice(2)}`,
 					payment_provider: {
