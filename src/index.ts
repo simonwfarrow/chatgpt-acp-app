@@ -1,32 +1,37 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { McpAgent } from "agents/mcp";
+import { Agent, getAgentByName } from "agents";
+import {
+	createMcpHandler,
+	type TransportState,
+	WorkerTransport,
+} from "agents/mcp";
 import type { z } from "zod";
 import { CHALLENGE_CONTENT, PRODUCTS, SHOP_HTML } from "./constants";
 import { addToCartSchema, completeCheckoutSchema } from "./types";
 
-export class MyMCP extends McpAgent<Env, DurableObjectState> {
-	// @ts-expect-error
+const STATE_KEY = "mcp-transport-state";
+
+export class MyMCP extends Agent<Env> {
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
 	});
 
-	private async getCart(): Promise<string[]> {
-		return (await this.state.storage.get<string[]>("cart")) || [];
-	}
+	transport = new WorkerTransport({
+		sessionIdGenerator: () => this.name,
+		storage: {
+			get: async () => {
+				return await this.ctx.storage.get<TransportState>(STATE_KEY);
+			},
+			set: async (state: TransportState) => {
+				await this.ctx.storage.put<TransportState>(STATE_KEY, state);
+			},
+		},
+	});
 
-	private async saveCart(cart: string[]) {
-		await this.state.storage.put("cart", cart);
-	}
+	constructor(ctx: DurableObjectState, env: Env) {
+		super(ctx, env);
 
-	private replyWithCart(cart: string[], message?: string) {
-		return {
-			content: message ? [{ type: "text" as const, text: message }] : [],
-			structuredContent: { cart: cart },
-		};
-	}
-
-	async init() {
 		this.server.registerResource(
 			"Open Worldpay Swag Shop",
 			"ui://widget/shop.html",
@@ -44,10 +49,10 @@ export class MyMCP extends McpAgent<Env, DurableObjectState> {
 							"openai/widgetCSP": {
 								connect_domains: [
 									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-								], // example API domain
+								],
 								resource_domains: [
 									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-								], // example CDN allowlist
+								],
 							},
 						},
 					},
@@ -217,15 +222,32 @@ export class MyMCP extends McpAgent<Env, DurableObjectState> {
 			},
 		);
 	}
+
+	async onMcpRequest(request: Request) {
+		return createMcpHandler(this.server as any, {
+			transport: this.transport,
+		})(request, this.env, this.ctx as unknown as ExecutionContext);
+	}
+
+	private async getCart(): Promise<string[]> {
+		return (await this.ctx.storage.get<string[]>("cart")) || [];
+	}
+
+	private async saveCart(cart: string[]) {
+		await this.ctx.storage.put("cart", cart);
+	}
+
+	private replyWithCart(cart: string[], message?: string) {
+		return {
+			content: message ? [{ type: "text" as const, text: message }] : [],
+			structuredContent: { cart: cart },
+		};
+	}
 }
 
 export default {
-	fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
 		const url = new URL(request.url);
-
-		if (url.pathname === "/mcp") {
-			return MyMCP.serve("/mcp").fetch(request, env, ctx);
-		}
 
 		if (url.pathname === "/") {
 			return new Response("Shop MCP server", {
@@ -239,6 +261,10 @@ export default {
 			});
 		}
 
-		return new Response("Not found", { status: 404 });
+		const sessionId =
+			request.headers.get("mcp-session-id") ?? crypto.randomUUID();
+		const agent = await getAgentByName(env.MCP_OBJECT, sessionId);
+
+		return await agent.onMcpRequest(request);
 	},
 };
