@@ -37,7 +37,8 @@ export class MyMCP extends McpAgent {
 									connect_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example API domain
 									resource_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example CDN allowlist
 									
-								},
+								}
+							},
 						},
 					},
 				],
