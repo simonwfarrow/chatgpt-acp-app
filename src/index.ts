@@ -5,37 +5,61 @@ import {
 	type TransportState,
 	WorkerTransport,
 } from "agents/mcp";
-import type { z } from "zod";
-import { CHALLENGE_CONTENT, PRODUCTS, SHOP_HTML } from "./constants";
-import { addToCartSchema, completeCheckoutSchema } from "./types";
+import { CHALLENGE_CONTENT, SHOP_HTML } from "./constants";
 
-const STATE_KEY = "mcp-transport-state";
-
-type ShopState = {
-	cart: string[];
-};
-
-export class MyMCP extends Agent<Env, ShopState> {
-	initialState: ShopState = {
-		cart: [],
-	};
-
+export class MyMCP extends Agent<Env> {
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
 	});
 
-	transport = new WorkerTransport({
-		sessionIdGenerator: () => this.name,
-		storage: {
-			get: async () => {
-				return await this.ctx.storage.get<TransportState>(STATE_KEY);
-			},
-			set: async (state: TransportState) => {
-				await this.ctx.storage.put<TransportState>(STATE_KEY, state);
-			},
-		},
-	});
+	// Store transports for different sessions
+	transports = new Map<string, WorkerTransport>();
+
+	async onMcpRequest(request: Request) {
+		const sessionId = request.headers.get("x-mcp-session-id") || "unknown";
+
+		// Robustness fix: If the client sends an "initialize" request, force a fresh transport.
+		// This handles cases where the client (like ChatGPT) reconnects or resets its state
+		// but sends the same session ID (or we mapped it to the same session), preventing
+		// the "Server already initialized" error.
+		try {
+			const clone = request.clone();
+			const body = (await clone.json()) as { method?: string };
+			if (body?.method === "initialize") {
+				console.log(`[${sessionId}] Received initialize, resetting transport.`);
+				this.transports.delete(sessionId);
+			}
+		} catch {
+			// Ignore body parsing errors (e.g. if it's not JSON)
+		}
+
+		let transport = this.transports.get(sessionId);
+		if (!transport) {
+			transport = new WorkerTransport({
+				sessionIdGenerator: () => sessionId,
+				enableJsonResponse: true,
+				storage: {
+					get: async () => {
+						return await this.ctx.storage.get<TransportState>(
+							`transport-${sessionId}`,
+						);
+					},
+					set: async (state: TransportState) => {
+						await this.ctx.storage.put<TransportState>(
+							`transport-${sessionId}`,
+							state,
+						);
+					},
+				},
+			});
+			this.transports.set(sessionId, transport);
+		}
+
+		return createMcpHandler(this.server as any, {
+			transport: transport,
+		})(request, this.env, this.ctx as unknown as ExecutionContext);
+	}
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -69,63 +93,11 @@ export class MyMCP extends Agent<Env, ShopState> {
 		);
 
 		this.server.registerTool(
-			"add_to_cart",
-			{
-				title: "Add to cart",
-				description: "Adds a product to the cart by ID.",
-				inputSchema: addToCartSchema.shape,
-				_meta: {
-					"openai/outputTemplate": "ui://widget/shop.html",
-					"openai/toolInvocation/invoking": "Adding to cart",
-					"openai/toolInvocation/invoked": "Added to cart",
-				},
-			},
-			async (args: z.infer<typeof addToCartSchema>) => {
-				const productId = args.productId;
-				const product = PRODUCTS.find((p) => p.id === productId);
-
-				if (!product) {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Product "${productId}" not found.`,
-							},
-						],
-						isError: true,
-					};
-				}
-
-				const cart = this.state.cart;
-				const newCart = [...cart, productId];
-				this.setState({ ...this.state, cart: newCart });
-				return this.replyWithCart(newCart, `Added ${product.name} to cart.`);
-			},
-		);
-
-		this.server.registerTool(
-			"reset_cart",
-			{
-				title: "Reset cart",
-				description: "Clears the shopping cart.",
-				inputSchema: {},
-				_meta: {
-					"openai/outputTemplate": "ui://widget/shop.html",
-					"openai/toolInvocation/invoking": "Resetting cart",
-					"openai/toolInvocation/invoked": "Reset cart",
-				},
-			},
-			async () => {
-				this.setState({ ...this.state, cart: [] });
-				return this.replyWithCart([], "Cart cleared.");
-			},
-		);
-
-		this.server.registerTool(
 			"create_checkout_session",
 			{
 				title: "Create checkout session",
-				description: "Creates a checkout session for the current cart.",
+				description:
+					"Creates a checkout session with pre-selected items (Hoodie and T-Shirt).",
 				inputSchema: {},
 				_meta: {
 					"openai/toolInvocation/invoking": "Creating checkout session",
@@ -133,46 +105,47 @@ export class MyMCP extends Agent<Env, ShopState> {
 				},
 			},
 			async () => {
-				const cart = this.state.cart;
-				const line_items = cart
-					.map((id, index) => {
-						const p = PRODUCTS.find((prod) => prod.id === id);
-						if (!p) return null;
-						const amount = Math.round(p.price * 100);
-						return {
-							id: `li_${index}_${Date.now()}`,
+				// Hardcoded line items for simplicity
+				const line_items = [
+					{
+						id: "li_1",
+						quantity: 1,
+						base_amount: 5000,
+						subtotal: 5000,
+						total_amount: 5000,
+						total: 5000,
+						item: {
+							id: "prod_hoodie",
+							name: "Worldpay Hoodie",
 							quantity: 1,
-							base_amount: amount,
-							subtotal: amount,
-							total_amount: amount,
-							total: amount,
-							item: {
-								id: p.id,
-								name: p.name,
-								quantity: 1,
-								description: p.name,
-								price: {
-									amount: amount,
-									currency: "USD",
-								},
+							description: "Cozy developer hoodie",
+							price: {
+								amount: 5000,
+								currency: "USD",
 							},
-						};
-					})
-					.filter((item): item is NonNullable<typeof item> => Boolean(item));
+						},
+					},
+					{
+						id: "li_2",
+						quantity: 1,
+						base_amount: 2500,
+						subtotal: 2500,
+						total_amount: 2500,
+						total: 2500,
+						item: {
+							id: "prod_tshirt",
+							name: "Worldpay T-Shirt",
+							quantity: 1,
+							description: "Classic logo tee",
+							price: {
+								amount: 2500,
+								currency: "USD",
+							},
+						},
+					},
+				];
 
-				const totalAmount = line_items.reduce(
-					(sum, item) => sum + item.base_amount,
-					0,
-				);
-
-				if (line_items.length === 0 || totalAmount === 0) {
-					return {
-						content: [
-							{ type: "text" as const, text: "Cart is empty or invalid." },
-						],
-						isError: true,
-					};
-				}
+				const totalAmount = 7500;
 
 				const session = {
 					id: `sess_${Math.random().toString(36).slice(2)}`,
@@ -202,46 +175,6 @@ export class MyMCP extends Agent<Env, ShopState> {
 				};
 			},
 		);
-
-		this.server.registerTool(
-			"complete_checkout",
-			{
-				title: "Complete checkout",
-				description: "Handles success callback and returns order confirmation.",
-				inputSchema: completeCheckoutSchema.shape,
-				_meta: {
-					"openai/toolInvocation/invoking": "Completing checkout",
-					"openai/toolInvocation/invoked": "Completed checkout",
-				},
-			},
-			async (args: z.infer<typeof completeCheckoutSchema>) => {
-				this.setState({ ...this.state, cart: [] });
-				return {
-					content: [{ type: "text" as const, text: "Order confirmed" }],
-					structuredContent: {
-						status: "confirmed",
-						order: {
-							id: `order_${Math.random().toString(36).slice(2)}`,
-							checkout_session_id: args.checkout_session_id,
-							status: "completed",
-						},
-					},
-				};
-			},
-		);
-	}
-
-	async onMcpRequest(request: Request) {
-		return createMcpHandler(this.server as any, {
-			transport: this.transport,
-		})(request, this.env, this.ctx as unknown as ExecutionContext);
-	}
-
-	private replyWithCart(cart: string[], message?: string) {
-		return {
-			content: message ? [{ type: "text" as const, text: message }] : [],
-			structuredContent: { cart: cart },
-		};
 	}
 }
 
@@ -263,7 +196,16 @@ export default {
 
 		const sessionId =
 			request.headers.get("mcp-session-id") ?? crypto.randomUUID();
-		const agent = await getAgentByName(env.MCP_OBJECT, sessionId); 
-		return await agent.onMcpRequest(request);
+
+		// Check if we need to pass headers to the agent
+		const agentRequest = new Request(request);
+		if (!request.headers.has("x-mcp-session-id")) {
+			agentRequest.headers.set("x-mcp-session-id", sessionId);
+		}
+
+		// Use a fixed session ID for the Agent itself to ensure all requests route to the same DO instance
+		// The individual MCP sessions are multiplexed inside this DO instance
+		const agent = await getAgentByName(env.MCP_OBJECT, "global-session");
+		return await agent.onMcpRequest(agentRequest);
 	},
 };
