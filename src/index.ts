@@ -31,7 +31,14 @@ export class MyMCP extends McpAgent {
 						uri: "ui://widget/shop.html",
 						mimeType: "text/html+skybridge",
 						text: SHOP_HTML,
-						_meta: { "openai/widgetPrefersBorder": true },
+						_meta: { "openai/widgetPrefersBorder": true 
+          						"openai/widgetDomain": "https://myapp.example.com",
+         						 "openai/widgetCSP": {
+									connect_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example API domain
+									resource_domains: ["https://chatgpt-acp-app.simonwfarrow.workers.dev"], // example CDN allowlist
+									
+								},
+						},
 					},
 				],
 			})
