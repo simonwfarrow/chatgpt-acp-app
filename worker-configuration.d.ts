@@ -6,6 +6,8 @@ declare namespace Cloudflare {
 		MCP_OBJECT: DurableObjectNamespace<import("./src/index").MyMCP>;
 		ASSETS: Fetcher;
 		MERCHANT_ID: string;
+		WORLDPAY_API_KEY: string;
+		CHALLENGE_CONTENT: string;
 	}
 }
 interface Env extends Cloudflare.Env {}

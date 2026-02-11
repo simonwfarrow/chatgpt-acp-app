@@ -5,7 +5,8 @@ import {
 	type TransportState,
 	WorkerTransport,
 } from "agents/mcp";
-import { CHALLENGE_CONTENT, SHOP_HTML } from "./constants";
+import { SHOP_HTML } from "./constants";
+import { completeCheckoutSchema } from "./types";
 
 export class MyMCP extends Agent<Env> {
 	server = new McpServer({
@@ -176,11 +177,138 @@ export class MyMCP extends Agent<Env> {
 				};
 			},
 		);
+
+		// Complete checkout tool - processes payment via Worldpay delegate token
+		this.server.registerTool(
+			"complete_checkout",
+			{
+				title: "Complete checkout",
+				description:
+					"Completes the checkout by processing payment via Worldpay.",
+				inputSchema: completeCheckoutSchema, 
+				_meta: {
+					"openai/toolInvocation/invoking": "Processing payment",
+					"openai/toolInvocation/invoked": "Payment processed",
+				},
+			},
+			async (params: any) => {
+				const { checkout_session_id, buyer, payment_data } = params as {
+					checkout_session_id: string;
+					buyer?: { email?: string };
+					payment_data: { token: string };
+				};
+
+				const sessionId = checkout_session_id;
+				console.log(`[${sessionId}] Processing checkout with Worldpay`);
+
+				// Build Worldpay Payments API request
+				const worldpayRequest = {
+					transactionReference: checkout_session_id,
+					merchant: { entity: "default" },
+					instruction: {
+						method: "card",
+						paymentInstrument: {
+							type: "delegate",
+							sessionHref: payment_data.token,
+						},
+						value: {
+							currency: "USD",
+							amount: 7500, // Hardcoded for POC - matches create_checkout_session
+						},
+						narrative: {
+							line1: "Worldpay Swag Shop",
+						},
+						...(buyer?.email && {
+							customer: { email: buyer.email },
+						}),
+					},
+				};
+
+				try {
+					const response = await fetch(
+						"https://try.access.worldpay.com/api/payments",
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: `Basic ${this.env.WORLDPAY_API_KEY}`,
+								"WP-Api-Version": "2024-06-01"
+							},
+							body: JSON.stringify(worldpayRequest),
+						},
+					);
+
+					const result = (await response.json()) as {
+						outcome?: string;
+						riskFactors?: unknown[];
+						paymentInstrument?: unknown;
+						_links?: unknown;
+						errorName?: string;
+						message?: string;
+					};
+					console.log(`[${sessionId}] Worldpay response:`, result);
+
+					if (!response.ok || result.outcome !== "authorized") {
+						return {
+							content: [
+								{
+									type: "text" as const,
+									text: `Payment failed: ${result.errorName || result.outcome || "Unknown error"}`,
+								},
+							],
+							structuredContent: {
+								id: checkout_session_id,
+								status: "failed",
+								error: {
+									code: "payment_declined",
+									message: result.message || "Payment was not authorized",
+								},
+							},
+							isError: true,
+						};
+					}
+
+					// Payment successful
+					const orderId = `order_${Math.random().toString(36).slice(2)}`;
+					return {
+						content: [
+							{ type: "text" as const, text: `Order completed: ${orderId}` },
+						],
+						structuredContent: {
+							id: checkout_session_id,
+							status: "completed",
+							currency: "USD",
+							order: {
+								id: orderId,
+								checkout_session_id: checkout_session_id,
+								permalink_url: "",
+							},
+						},
+					};
+				} catch (error) {
+					console.error(`[${sessionId}] Worldpay API error:`, error);
+					return {
+						content: [
+							{ type: "text" as const, text: "Payment processing failed" },
+						],
+						structuredContent: {
+							id: checkout_session_id,
+							status: "failed",
+							error: {
+								code: "payment_error",
+								message: "Failed to process payment",
+							},
+						},
+						isError: true,
+					};
+				}
+			},
+		);
 	}
 }
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
 		const url = new URL(request.url);
 
 		if (url.pathname === "/") {
