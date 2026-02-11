@@ -6,6 +6,7 @@ import {
 	WorkerTransport,
 } from "agents/mcp";
 import { SHOP_HTML } from "./constants";
+import { logger } from "./logger";
 import { completeCheckoutSchema } from "./types";
 
 export class MyMCP extends Agent<Env> {
@@ -19,24 +20,41 @@ export class MyMCP extends Agent<Env> {
 
 	async onMcpRequest(request: Request) {
 		const sessionId = request.headers.get("x-mcp-session-id") || "unknown";
+		const requestId = crypto.randomUUID();
+		const startTime = Date.now();
 
-		// Robustness fix: If the client sends an "initialize" request, force a fresh transport.
-		// This handles cases where the client (like ChatGPT) reconnects or resets its state
-		// but sends the same session ID (or we mapped it to the same session), preventing
-		// the "Server already initialized" error.
+		// Create a logger with session context
+		const log = logger.child({ sessionId, requestId });
+
+		// Log incoming MCP request
+		let requestBody: unknown;
 		try {
 			const clone = request.clone();
-			const body = (await clone.json()) as { method?: string };
-			if (body?.method === "initialize") {
-				console.log(`[${sessionId}] Received initialize, resetting transport.`);
-				this.transports.delete(sessionId);
-			}
+			requestBody = await clone.json();
+			log.logRequest(request, requestBody, {
+				context: { sessionId, requestId, component: "mcp" },
+			});
 		} catch {
-			// Ignore body parsing errors (e.g. if it's not JSON)
+			// Body might not be JSON
+			log.logRequest(request, undefined, {
+				context: { sessionId, requestId, component: "mcp" },
+			});
+		}
+
+		// Robustness fix: If the client sends an "initialize" request, force a fresh transport.
+		const body = requestBody as { method?: string } | undefined;
+		if (body?.method === "initialize") {
+			log.info("mcp_initialize_reset", {
+				message: "Received initialize, resetting transport",
+			});
+			this.transports.delete(sessionId);
 		}
 
 		let transport = this.transports.get(sessionId);
 		if (!transport) {
+			log.info("mcp_transport_created", {
+				message: "Creating new transport for session",
+			});
 			transport = new WorkerTransport({
 				sessionIdGenerator: () => sessionId,
 				enableJsonResponse: true,
@@ -57,9 +75,25 @@ export class MyMCP extends Agent<Env> {
 			this.transports.set(sessionId, transport);
 		}
 
-		return createMcpHandler(this.server as any, {
+		const response = await createMcpHandler(this.server as any, {
 			transport: transport,
 		})(request, this.env, this.ctx as unknown as ExecutionContext);
+
+		// Log outgoing MCP response
+		const durationMs = Date.now() - startTime;
+		try {
+			const responseClone = response.clone();
+			const responseBody = await responseClone.json();
+			log.logResponse(response.status, responseBody, durationMs, {
+				context: { sessionId, requestId, component: "mcp" },
+			});
+		} catch {
+			log.logResponse(response.status, undefined, durationMs, {
+				context: { sessionId, requestId, component: "mcp" },
+			});
+		}
+
+		return response;
 	}
 
 	constructor(ctx: DurableObjectState, env: Env) {
@@ -69,28 +103,33 @@ export class MyMCP extends Agent<Env> {
 			"Open Worldpay Swag Shop",
 			"ui://widget/shop.html",
 			{},
-			async () => ({
-				contents: [
-					{
-						uri: "ui://widget/shop.html",
-						mimeType: "text/html+skybridge",
-						text: SHOP_HTML,
-						_meta: {
-							"openai/widgetPrefersBorder": true,
-							"openai/widgetDomain":
-								"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-							"openai/widgetCSP": {
-								connect_domains: [
+			async () => {
+				logger.info("mcp_resource_accessed", {
+					context: { resourceName: "Open Worldpay Swag Shop" },
+				});
+				return {
+					contents: [
+						{
+							uri: "ui://widget/shop.html",
+							mimeType: "text/html+skybridge",
+							text: SHOP_HTML,
+							_meta: {
+								"openai/widgetPrefersBorder": true,
+								"openai/widgetDomain":
 									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-								],
-								resource_domains: [
-									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-								],
+								"openai/widgetCSP": {
+									connect_domains: [
+										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+									],
+									resource_domains: [
+										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+									],
+								},
 							},
 						},
-					},
-				],
-			}),
+					],
+				};
+			},
 		);
 
 		this.server.registerTool(
@@ -106,7 +145,12 @@ export class MyMCP extends Agent<Env> {
 					"openai/toolInvocation/invoked": "Created checkout session",
 				},
 			},
-			async () => {
+			async (params) => {
+				const startTime = Date.now();
+				const toolLog = logger.child({ toolName: "create_checkout_session" });
+
+				toolLog.logToolInvocation("create_checkout_session", params);
+
 				// Hardcoded line items for simplicity
 				const line_items = [
 					{
@@ -169,12 +213,17 @@ export class MyMCP extends Agent<Env> {
 					],
 				};
 
-				return {
+				const result = {
 					content: [
 						{ type: "text" as const, text: "Checkout session created" },
 					],
 					structuredContent: session,
 				};
+
+				const durationMs = Date.now() - startTime;
+				toolLog.logToolResult("create_checkout_session", result, durationMs);
+
+				return result;
 			},
 		);
 
@@ -185,21 +234,35 @@ export class MyMCP extends Agent<Env> {
 				title: "Complete checkout",
 				description:
 					"Completes the checkout by processing payment via Worldpay.",
-				inputSchema: completeCheckoutSchema, 
+				inputSchema: completeCheckoutSchema,
 				_meta: {
 					"openai/toolInvocation/invoking": "Processing payment",
 					"openai/toolInvocation/invoked": "Payment processed",
 				},
 			},
 			async (params: any) => {
+				const startTime = Date.now();
 				const { checkout_session_id, buyer, payment_data } = params as {
 					checkout_session_id: string;
 					buyer?: { email?: string };
 					payment_data: { token: string };
 				};
 
-				const sessionId = checkout_session_id;
-				console.log(`[${sessionId}] Processing checkout with Worldpay`);
+				const toolLog = logger.child({
+					toolName: "complete_checkout",
+					checkoutSessionId: checkout_session_id,
+				});
+
+				// Log tool invocation with redacted payment data
+				toolLog.logToolInvocation("complete_checkout", {
+					checkout_session_id,
+					buyer,
+					payment_data: {
+						token: payment_data.token
+							? `${payment_data.token.substring(0, 50)}...[TRUNCATED]`
+							: undefined,
+					},
+				});
 
 				// Build Worldpay Payments API request
 				const worldpayRequest = {
@@ -224,19 +287,40 @@ export class MyMCP extends Agent<Env> {
 					},
 				};
 
+				const worldpayUrl = "https://try.access.worldpay.com/api/payments";
+
 				try {
-					const response = await fetch(
-						"https://try.access.worldpay.com/api/payments",
+					// Log outgoing Worldpay API request
+					const apiStartTime = Date.now();
+					toolLog.logApiRequest(
+						worldpayUrl,
+						"POST",
 						{
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								Authorization: `Basic ${this.env.WORLDPAY_API_KEY}`,
-								"WP-Api-Version": "2024-06-01"
+							...worldpayRequest,
+							instruction: {
+								...worldpayRequest.instruction,
+								paymentInstrument: {
+									type: "delegate",
+									sessionHref: "[REDACTED]",
+								},
 							},
-							body: JSON.stringify(worldpayRequest),
+						},
+						{
+							"Content-Type": "application/json",
+							Authorization: "[REDACTED]",
+							"WP-Api-Version": "2024-06-01",
 						},
 					);
+
+					const response = await fetch(worldpayUrl, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Basic ${this.env.WORLDPAY_API_KEY}`,
+							"WP-Api-Version": "2024-06-01",
+						},
+						body: JSON.stringify(worldpayRequest),
+					});
 
 					const result = (await response.json()) as {
 						outcome?: string;
@@ -246,10 +330,19 @@ export class MyMCP extends Agent<Env> {
 						errorName?: string;
 						message?: string;
 					};
-					console.log(`[${sessionId}] Worldpay response:`, result);
+
+					const apiDurationMs = Date.now() - apiStartTime;
+
+					// Log Worldpay API response
+					toolLog.logApiResponse(
+						worldpayUrl,
+						response.status,
+						result,
+						apiDurationMs,
+					);
 
 					if (!response.ok || result.outcome !== "authorized") {
-						return {
+						const errorResult = {
 							content: [
 								{
 									type: "text" as const,
@@ -266,11 +359,21 @@ export class MyMCP extends Agent<Env> {
 							},
 							isError: true,
 						};
+
+						const durationMs = Date.now() - startTime;
+						toolLog.logToolResult("complete_checkout", errorResult, durationMs);
+						toolLog.warn("checkout_payment_failed", {
+							message: "Payment was not authorized",
+							worldpayOutcome: result.outcome,
+							worldpayError: result.errorName,
+						});
+
+						return errorResult;
 					}
 
 					// Payment successful
 					const orderId = `order_${Math.random().toString(36).slice(2)}`;
-					return {
+					const successResult = {
 						content: [
 							{ type: "text" as const, text: `Order completed: ${orderId}` },
 						],
@@ -285,9 +388,23 @@ export class MyMCP extends Agent<Env> {
 							},
 						},
 					};
+
+					const durationMs = Date.now() - startTime;
+					toolLog.logToolResult("complete_checkout", successResult, durationMs);
+					toolLog.info("checkout_completed", {
+						message: "Payment successfully processed",
+						orderId,
+						worldpayOutcome: result.outcome,
+					});
+
+					return successResult;
 				} catch (error) {
-					console.error(`[${sessionId}] Worldpay API error:`, error);
-					return {
+					const durationMs = Date.now() - startTime;
+					toolLog.logError("worldpay_api_error", error, {
+						context: { checkoutSessionId: checkout_session_id },
+					});
+
+					const errorResult = {
 						content: [
 							{ type: "text" as const, text: "Payment processing failed" },
 						],
@@ -301,6 +418,9 @@ export class MyMCP extends Agent<Env> {
 						},
 						isError: true,
 					};
+
+					toolLog.logToolResult("complete_checkout", errorResult, durationMs);
+					return errorResult;
 				}
 			},
 		);
@@ -309,32 +429,76 @@ export class MyMCP extends Agent<Env> {
 
 export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+		const requestId = crypto.randomUUID();
+		const startTime = Date.now();
 		const url = new URL(request.url);
 
-		if (url.pathname === "/") {
-			return new Response("Shop MCP server", {
+		// Create request-scoped logger
+		const log = logger.child({
+			requestId,
+			method: request.method,
+			path: url.pathname,
+		});
+
+		// Log all incoming requests
+		log.logRequest(request, undefined, {
+			context: { requestId, component: "fetch_handler" },
+		});
+
+		try {
+			if (url.pathname === "/") {
+				const response = new Response("Shop MCP server", {
+					headers: { "content-type": "text/plain" },
+				});
+				const durationMs = Date.now() - startTime;
+				log.logResponse(response.status, "Shop MCP server", durationMs);
+				return response;
+			}
+
+			if (url.pathname === "/.well-known/openai-apps-challenge") {
+				const response = new Response(env.CHALLENGE_CONTENT, {
+					headers: { "content-type": "text/plain" },
+				});
+				const durationMs = Date.now() - startTime;
+				log.logResponse(response.status, "[CHALLENGE_CONTENT]", durationMs);
+				return response;
+			}
+
+			const sessionId =
+				request.headers.get("mcp-session-id") ?? crypto.randomUUID();
+
+			log.info("mcp_request_routing", {
+				message: "Routing request to MCP agent",
+				context: { requestId, sessionId },
+			});
+
+			// Check if we need to pass headers to the agent
+			const agentRequest = new Request(request);
+			if (!request.headers.has("x-mcp-session-id")) {
+				agentRequest.headers.set("x-mcp-session-id", sessionId);
+			}
+
+			// Use a fixed session ID for the Agent itself to ensure all requests route to the same DO instance
+			// The individual MCP sessions are multiplexed inside this DO instance
+			const agent = await getAgentByName(env.MCP_OBJECT, "global-session");
+			const response = await agent.onMcpRequest(agentRequest);
+
+			const durationMs = Date.now() - startTime;
+			log.info("mcp_request_completed", {
+				message: "MCP request completed",
+				durationMs,
+				context: { requestId, sessionId, responseStatus: response.status },
+			});
+
+			return response;
+		} catch (error) {
+			const durationMs = Date.now() - startTime;
+			log.logError("fetch_handler_error", error, { durationMs });
+
+			return new Response("Internal Server Error", {
+				status: 500,
 				headers: { "content-type": "text/plain" },
 			});
 		}
-
-		if (url.pathname === "/.well-known/openai-apps-challenge") {
-			return new Response(env.CHALLENGE_CONTENT, {
-				headers: { "content-type": "text/plain" },
-			});
-		}
-
-		const sessionId =
-			request.headers.get("mcp-session-id") ?? crypto.randomUUID();
-
-		// Check if we need to pass headers to the agent
-		const agentRequest = new Request(request);
-		if (!request.headers.has("x-mcp-session-id")) {
-			agentRequest.headers.set("x-mcp-session-id", sessionId);
-		}
-
-		// Use a fixed session ID for the Agent itself to ensure all requests route to the same DO instance
-		// The individual MCP sessions are multiplexed inside this DO instance
-		const agent = await getAgentByName(env.MCP_OBJECT, "global-session");
-		return await agent.onMcpRequest(agentRequest);
 	},
 };
