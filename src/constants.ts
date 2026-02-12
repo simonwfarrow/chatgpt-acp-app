@@ -229,9 +229,11 @@ export const SHOP_HTML = `<!DOCTYPE html>
     
     // Update quantity
     function updateQuantity(productId, delta) {
-        cart[productId] = Math.max(0, (cart[productId] || 0) + delta);
-        if (cart[productId] === 0) {
+        const newQty = (cart[productId] || 0) + delta;
+        if (newQty <= 0) {
             delete cart[productId];
+        } else {
+            cart[productId] = newQty;
         }
         updateBasket();
     }
@@ -326,7 +328,8 @@ export const SHOP_HTML = `<!DOCTYPE html>
 
 export const CHALLENGE_CONTENT = "erbHlsmNQvYZ7Rfq-P6ZH_ohgVs0_Mg53ZbXgsImNFE";
 
-// Kept for reference if needed, but not used in the simplified HTML
+// Product catalog - intentionally duplicated in client-side JS for simplicity
+// This keeps the HTML self-contained and avoids dynamic template generation
 export const PRODUCTS = [
 	{ id: "tshirt", name: "Worldpay T-Shirt", price: 20.0 },
 	{ id: "cup", name: "Worldpay Cup", price: 10.0 },

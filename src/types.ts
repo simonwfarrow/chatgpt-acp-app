@@ -28,3 +28,22 @@ export interface Product {
 	name: string;
 	price: number;
 }
+
+export interface LineItem {
+	id: string;
+	quantity: number;
+	base_amount: number;
+	subtotal: number;
+	total_amount: number;
+	total: number;
+	item: {
+		id: string;
+		name: string;
+		quantity: number;
+		description: string;
+		price: {
+			amount: number;
+			currency: string;
+		};
+	};
+}

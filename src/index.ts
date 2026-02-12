@@ -7,7 +7,11 @@ import {
 } from "agents/mcp";
 import { PRODUCTS, SHOP_HTML } from "./constants";
 import { logger } from "./logger";
-import { completeCheckoutSchema, createCheckoutSessionSchema } from "./types";
+import {
+	completeCheckoutSchema,
+	createCheckoutSessionSchema,
+	type LineItem,
+} from "./types";
 
 export class MyMCP extends Agent<Env> {
 	server = new McpServer({
@@ -145,16 +149,16 @@ export class MyMCP extends Agent<Env> {
 					"openai/toolInvocation/invoked": "Created checkout session",
 				},
 			},
-			async (params: any) => {
+			async (params) => {
 				const startTime = Date.now();
 				const toolLog = logger.child({ toolName: "create_checkout_session" });
 
 				toolLog.logToolInvocation("create_checkout_session", params);
 
-				const { cart = {} } = params as { cart?: Record<string, number> };
+				const { cart = {} } = params;
 
 				// Build line items from cart or use default bundle
-				let line_items: any[] = [];
+				const line_items: LineItem[] = [];
 				let totalAmount = 0;
 
 				if (Object.keys(cart).length > 0) {
