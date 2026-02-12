@@ -158,7 +158,7 @@ export class MyMCP extends Agent<Env> {
 				const { cart = {} } = params;
 
 				// Build line items from cart or use default bundle
-				const line_items: LineItem[] = [];
+				let line_items: LineItem[] = [];
 				let totalAmount = 0;
 
 				if (Object.keys(cart).length > 0) {
