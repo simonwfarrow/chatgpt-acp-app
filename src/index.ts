@@ -5,9 +5,9 @@ import {
 	type TransportState,
 	WorkerTransport,
 } from "agents/mcp";
-import { SHOP_HTML } from "./constants";
+import { PRODUCTS, SHOP_HTML } from "./constants";
 import { logger } from "./logger";
-import { completeCheckoutSchema } from "./types";
+import { completeCheckoutSchema, createCheckoutSessionSchema } from "./types";
 
 export class MyMCP extends Agent<Env> {
 	server = new McpServer({
@@ -137,61 +137,98 @@ export class MyMCP extends Agent<Env> {
 			{
 				title: "Create checkout session",
 				description:
-					"Creates a checkout session with pre-selected items (Hoodie and T-Shirt).",
-				inputSchema: {},
+					"Creates a checkout session with items from the shopping cart.",
+				inputSchema: createCheckoutSessionSchema,
 				_meta: {
 					"openai/outputTemplate": "ui://widget/shop.html",
 					"openai/toolInvocation/invoking": "Creating checkout session",
 					"openai/toolInvocation/invoked": "Created checkout session",
 				},
 			},
-			async (params) => {
+			async (params: any) => {
 				const startTime = Date.now();
 				const toolLog = logger.child({ toolName: "create_checkout_session" });
 
 				toolLog.logToolInvocation("create_checkout_session", params);
 
-				// Hardcoded line items for simplicity
-				const line_items = [
-					{
-						id: "li_1",
-						quantity: 1,
-						base_amount: 5000,
-						subtotal: 5000,
-						total_amount: 5000,
-						total: 5000,
-						item: {
-							id: "prod_hoodie",
-							name: "Worldpay Hoodie",
-							quantity: 1,
-							description: "Cozy developer hoodie",
-							price: {
-								amount: 5000,
-								currency: "USD",
-							},
-						},
-					},
-					{
-						id: "li_2",
-						quantity: 1,
-						base_amount: 2500,
-						subtotal: 2500,
-						total_amount: 2500,
-						total: 2500,
-						item: {
-							id: "prod_tshirt",
-							name: "Worldpay T-Shirt",
-							quantity: 1,
-							description: "Classic logo tee",
-							price: {
-								amount: 2500,
-								currency: "USD",
-							},
-						},
-					},
-				];
+				const { cart = {} } = params as { cart?: Record<string, number> };
 
-				const totalAmount = 7500;
+				// Build line items from cart or use default bundle
+				let line_items: any[] = [];
+				let totalAmount = 0;
+
+				if (Object.keys(cart).length > 0) {
+					// Build from cart
+					let lineItemIndex = 1;
+					for (const [productId, quantity] of Object.entries(cart)) {
+						const product = PRODUCTS.find((p) => p.id === productId);
+						if (product && quantity > 0) {
+							const priceInCents = Math.round(product.price * 100);
+							const itemTotal = priceInCents * quantity;
+							line_items.push({
+								id: `li_${lineItemIndex}`,
+								quantity: quantity,
+								base_amount: itemTotal,
+								subtotal: itemTotal,
+								total_amount: itemTotal,
+								total: itemTotal,
+								item: {
+									id: productId,
+									name: product.name,
+									quantity: quantity,
+									description: product.name,
+									price: {
+										amount: priceInCents,
+										currency: "USD",
+									},
+								},
+							});
+							totalAmount += itemTotal;
+							lineItemIndex++;
+						}
+					}
+				} else {
+					// Default bundle (backward compatibility)
+					line_items = [
+						{
+							id: "li_1",
+							quantity: 1,
+							base_amount: 5000,
+							subtotal: 5000,
+							total_amount: 5000,
+							total: 5000,
+							item: {
+								id: "prod_hoodie",
+								name: "Worldpay Hoodie",
+								quantity: 1,
+								description: "Cozy developer hoodie",
+								price: {
+									amount: 5000,
+									currency: "USD",
+								},
+							},
+						},
+						{
+							id: "li_2",
+							quantity: 1,
+							base_amount: 2500,
+							subtotal: 2500,
+							total_amount: 2500,
+							total: 2500,
+							item: {
+								id: "prod_tshirt",
+								name: "Worldpay T-Shirt",
+								quantity: 1,
+								description: "Classic logo tee",
+								price: {
+									amount: 2500,
+									currency: "USD",
+								},
+							},
+						},
+					];
+					totalAmount = 7500;
+				}
 
 				const session = {
 					id: `sess_${Math.random().toString(36).slice(2)}`,

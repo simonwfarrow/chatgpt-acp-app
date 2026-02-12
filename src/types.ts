@@ -4,6 +4,10 @@ export const addToCartSchema = z.object({
 	productId: z.string(),
 });
 
+export const createCheckoutSessionSchema = z.object({
+	cart: z.record(z.string(), z.number()).optional(),
+});
+
 export const completeCheckoutSchema = z.object({
 	checkout_session_id: z.string(),
 	buyer: z
