@@ -5,7 +5,7 @@ import {
 	type TransportState,
 	WorkerTransport,
 } from "agents/mcp";
-import { CHECKOUT_SUCCESS_HTML, PRODUCTS, SHOP_HTML } from "./constants";
+import { PRODUCTS, SHOP_HTML } from "./constants";
 import { logger } from "./logger";
 import {
 	type CheckoutSessionState,
@@ -120,39 +120,6 @@ export class MyMCP extends Agent<any> {
 							text: SHOP_HTML,
 							_meta: {
 								"openai/widgetPrefersBorder": true,
-								"openai/widgetDomain":
-									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-								"openai/widgetCSP": {
-									connect_domains: [
-										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-									],
-									resource_domains: [
-										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
-									],
-								},
-							},
-						},
-					],
-				};
-			},
-		);
-
-		this.server.registerResource(
-			"Checkout Success Modal",
-			"ui://widget/checkout-success.html",
-			{},
-			async () => {
-				logger.info("mcp_resource_accessed", {
-					context: { resourceName: "Checkout Success Modal" },
-				});
-				return {
-					contents: [
-						{
-							uri: "ui://widget/checkout-success.html",
-							mimeType: "text/html+skybridge",
-							text: CHECKOUT_SUCCESS_HTML,
-							_meta: {
-								"openai/widgetPrefersBorder": false,
 								"openai/widgetDomain":
 									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
 								"openai/widgetCSP": {
@@ -324,7 +291,6 @@ export class MyMCP extends Agent<any> {
 					"Completes the checkout by processing payment via Worldpay.",
 				inputSchema: completeCheckoutSchema,
 				_meta: {
-					"openai/outputTemplate": "ui://widget/checkout-success.html",
 					"openai/toolInvocation/invoking": "Processing payment",
 					"openai/toolInvocation/invoked": "Payment processed",
 				},
@@ -368,9 +334,6 @@ export class MyMCP extends Agent<any> {
 						structuredContent: {
 							id: checkout_session_id,
 							status: "failed",
-							currency: "USD",
-							line_items: [],
-							total_amount: 0,
 							error: {
 								code: "session_not_found",
 								message:
@@ -486,9 +449,6 @@ export class MyMCP extends Agent<any> {
 							structuredContent: {
 								id: checkout_session_id,
 								status: "failed",
-								currency: storedSession.currency,
-								line_items: storedSession.lineItems,
-								total_amount: storedSession.totalAmount,
 								error: {
 									code: "payment_declined",
 									message: result.message || "Payment was not authorized",
@@ -524,9 +484,7 @@ export class MyMCP extends Agent<any> {
 						structuredContent: {
 							id: checkout_session_id,
 							status: "completed",
-							currency: storedSession.currency,
-							line_items: storedSession.lineItems,
-							total_amount: storedSession.totalAmount,
+							currency: "USD",
 							order: {
 								id: orderId,
 								checkout_session_id: checkout_session_id,
@@ -565,9 +523,6 @@ export class MyMCP extends Agent<any> {
 						structuredContent: {
 							id: checkout_session_id,
 							status: "failed",
-							currency: storedSession.currency,
-							line_items: storedSession.lineItems,
-							total_amount: storedSession.totalAmount,
 							error: {
 								code: "payment_error",
 								message: "Failed to process payment",
