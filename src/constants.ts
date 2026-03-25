@@ -43,6 +43,12 @@ export const SHOP_HTML = `<!DOCTYPE html>
             text-align: center;
             transition: box-shadow 0.2s;
         }
+        .product-image {
+            width: 100%;
+            height: 140px;
+            object-fit: contain;
+            margin-bottom: 0.75rem;
+        }
         .product-card:hover {
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
@@ -190,8 +196,18 @@ export const SHOP_HTML = `<!DOCTYPE html>
 <script>
     // Product catalog
     const products = [
-        { id: "tshirt", name: "Worldpay T-Shirt", price: 20.00 },
-        { id: "cup", name: "Worldpay Cup", price: 10.00 }
+        {
+            id: "tshirt",
+            name: "Worldpay T-Shirt",
+            price: 20.00,
+            image: "https://colorworldpaystore.com/cdn/shop/files/Mens_Black_tshirt_Red_text_1_7869b910-c94e-4114-a96f-83a6f39e92e7.jpg?v=1723216494&width=1946"
+        },
+        {
+            id: "cup",
+            name: "Worldpay Cup",
+            price: 10.00,
+            image: "https://colorworldpaystore.com/cdn/shop/files/cf776442-66a1-430f-b9ef-477f912a5c3c-black-red.png?v=1723218775"
+        }
     ];
     
     // Cart state (client-side only)
@@ -208,6 +224,7 @@ export const SHOP_HTML = `<!DOCTYPE html>
         const container = document.getElementById('products');
         container.innerHTML = products.map(product => \`
             <div class="product-card">
+                <img class="product-image" src="\${product.image}" alt="\${product.name}" />
                 <div class="product-name">\${product.name}</div>
                 <div class="product-price">$\${product.price.toFixed(2)}</div>
                 <button class="add-btn" onclick="addToCart('\${product.id}')">

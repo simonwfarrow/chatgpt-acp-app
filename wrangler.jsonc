@@ -8,6 +8,11 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"vars": {
+		"WORLDPAY_API_KEY": "",
+		"CHALLENGE_CONTENT": "",
+		"MERCHANT_ID": ""
+	},
 	"migrations": [
 		{
 			"new_sqlite_classes": ["MyMCP"],
