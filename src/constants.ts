@@ -343,6 +343,340 @@ export const SHOP_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+export const CHECKOUT_SUCCESS_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Complete</title>
+    <style>
+        :root {
+            --ink-900: #0f1f2b;
+            --ink-700: #2a3a45;
+            --ink-500: #5d6b76;
+            --surface: #f8f4ef;
+            --panel: #ffffff;
+            --accent: #0f766e;
+            --accent-soft: #e6f6f4;
+            --warning: #b45309;
+            --danger: #b91c1c;
+            --border: #e4ded6;
+            --shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(circle at 15% 20%, #fff7e6 0%, #f0efe9 45%, #e8ecea 100%);
+            color: var(--ink-900);
+            font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+        }
+        .backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.32);
+            backdrop-filter: blur(8px);
+        }
+        .modal {
+            position: relative;
+            width: min(720px, 92vw);
+            background: var(--panel);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            z-index: 1;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .title {
+            font-size: 1.75rem;
+            margin: 0 0 6px;
+            color: var(--ink-900);
+        }
+        .subtitle {
+            margin: 0;
+            color: var(--ink-500);
+            font-size: 1rem;
+        }
+        .status-badge {
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+        .status--completed {
+            background: var(--accent-soft);
+            color: var(--accent);
+            border: 1px solid rgba(15, 118, 110, 0.2);
+        }
+        .status--failed {
+            background: #fee2e2;
+            color: var(--danger);
+            border: 1px solid rgba(185, 28, 28, 0.2);
+        }
+        .status--pending {
+            background: #ffedd5;
+            color: var(--warning);
+            border: 1px solid rgba(180, 83, 9, 0.2);
+        }
+        .order-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            padding: 16px;
+            border-radius: 16px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+        .meta-label {
+            font-size: 0.85rem;
+            color: var(--ink-500);
+            letter-spacing: 0.01em;
+        }
+        .meta-value {
+            font-size: 1.05rem;
+            color: var(--ink-900);
+            font-weight: 600;
+        }
+        .items-title {
+            font-size: 1.1rem;
+            margin: 0 0 12px;
+            color: var(--ink-700);
+        }
+        .items {
+            display: grid;
+            gap: 12px;
+        }
+        .item {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: #fff;
+        }
+        .item-name {
+            font-weight: 600;
+            color: var(--ink-900);
+        }
+        .item-meta {
+            color: var(--ink-500);
+            font-size: 0.95rem;
+            margin-top: 4px;
+        }
+        .item-total {
+            font-weight: 700;
+            color: var(--ink-900);
+            white-space: nowrap;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            margin-top: 16px;
+            border-radius: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .error-box {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: #fef2f2;
+            border: 1px solid rgba(185, 28, 28, 0.2);
+            color: var(--danger);
+            font-size: 0.95rem;
+        }
+        @media (max-width: 600px) {
+            .modal {
+                padding: 24px;
+            }
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="backdrop"></div>
+    <div class="modal" role="dialog" aria-modal="true">
+        <div class="header">
+            <div>
+                <h1 class="title">Checkout complete</h1>
+                <p class="subtitle">Your order is ready for fulfillment.</p>
+            </div>
+            <div id="statusBadge" class="status-badge status--completed">Completed</div>
+        </div>
+
+        <div class="order-meta">
+            <div>
+                <div class="meta-label">Order status</div>
+                <div class="meta-value" id="statusText">Completed</div>
+            </div>
+            <div>
+                <div class="meta-label">Order ID</div>
+                <div class="meta-value" id="orderId">-</div>
+            </div>
+            <div>
+                <div class="meta-label">Currency</div>
+                <div class="meta-value" id="currency">USD</div>
+            </div>
+        </div>
+
+        <h2 class="items-title">Order contents</h2>
+        <div id="items" class="items"></div>
+        <div id="totalRow" class="total-row"></div>
+        <div id="errorBox" class="error-box" style="display: none;"></div>
+    </div>
+
+    <script>
+        function getOutputPayload() {
+            if (window.openai) {
+                if (typeof window.openai.getOutput === "function") {
+                    return window.openai.getOutput();
+                }
+                if (typeof window.openai.getToolResult === "function") {
+                    return window.openai.getToolResult();
+                }
+                if (window.openai.output) {
+                    return window.openai.output;
+                }
+                if (window.openai.toolOutput) {
+                    return window.openai.toolOutput;
+                }
+            }
+            if (window.__OPENAI_OUTPUT__) {
+                return window.__OPENAI_OUTPUT__;
+            }
+            if (window.__MCP_TOOL_OUTPUT__) {
+                return window.__MCP_TOOL_OUTPUT__;
+            }
+            return null;
+        }
+
+        function normalizePayload(payload) {
+            if (!payload) {
+                return null;
+            }
+            if (payload.structuredContent) {
+                return payload.structuredContent;
+            }
+            return payload;
+        }
+
+        function formatMoney(amount, currency) {
+            const value = typeof amount === "number" ? amount : 0;
+            const normalized = value / 100;
+            try {
+                return new Intl.NumberFormat("en-US", {
+                    style: "currency",
+                    currency: currency || "USD",
+                }).format(normalized);
+            } catch {
+                return "$" + normalized.toFixed(2);
+            }
+        }
+
+        function render() {
+            const payload = normalizePayload(getOutputPayload()) || {
+                status: "completed",
+                currency: "USD",
+                line_items: [],
+                order: { id: "order_demo" },
+            };
+
+            const status = payload.status || "completed";
+            const statusText = status.replace(/_/g, " ");
+            const badge = document.getElementById("statusBadge");
+            const statusLabel = statusText.charAt(0).toUpperCase() + statusText.slice(1);
+            badge.textContent = statusLabel;
+            badge.className =
+                "status-badge status--" +
+                (status === "completed" ? "completed" : status === "failed" ? "failed" : "pending");
+
+            document.getElementById("statusText").textContent = statusLabel;
+            document.getElementById("orderId").textContent =
+                payload.order && payload.order.id ? payload.order.id : "-";
+            document.getElementById("currency").textContent = payload.currency || "USD";
+
+            const itemsContainer = document.getElementById("items");
+            const items = Array.isArray(payload.line_items) ? payload.line_items : [];
+            itemsContainer.innerHTML = items.length
+                ? items
+                      .map((item) => {
+                          const name = item.item && item.item.name ? item.item.name : "Item";
+                          const quantity = item.quantity || 1;
+                          const unitAmount =
+                              item.item && item.item.price ? item.item.price.amount : item.base_amount;
+                          const totalAmount = item.total_amount || item.total || unitAmount * quantity;
+                          return (
+                              "<div class=\\"item\\">" +
+                              "<div>" +
+                              "<div class=\\"item-name\\">" +
+                              name +
+                              "</div>" +
+                              "<div class=\\"item-meta\\">Qty " +
+                              quantity +
+                              " · " +
+                              formatMoney(unitAmount, payload.currency) +
+                              " each</div>" +
+                              "</div>" +
+                              "<div class=\\"item-total\\">" +
+                              formatMoney(totalAmount, payload.currency) +
+                              "</div>" +
+                              "</div>"
+                          );
+                      })
+                      .join("")
+                : "<div class=\\"item\\"><div class=\\"item-name\\">No items found</div><div class=\\"item-total\\">-</div></div>";
+
+            const totalAmount =
+                typeof payload.total_amount === "number"
+                    ? payload.total_amount
+                    : items.reduce((sum, item) => sum + (item.total_amount || item.total || 0), 0);
+
+            document.getElementById("totalRow").innerHTML =
+                "<span>Order total</span><span>" +
+                formatMoney(totalAmount, payload.currency) +
+                "</span>";
+
+            if (payload.error && payload.error.message) {
+                const errorBox = document.getElementById("errorBox");
+                errorBox.textContent = payload.error.message;
+                errorBox.style.display = "block";
+            }
+        }
+
+        window.addEventListener("message", (event) => {
+            if (event && event.data) {
+                window.__MCP_TOOL_OUTPUT__ = event.data;
+                render();
+            }
+        });
+
+        render();
+    </script>
+</body>
+</html>`;
+
 export const CHALLENGE_CONTENT = "erbHlsmNQvYZ7Rfq-P6ZH_ohgVs0_Mg53ZbXgsImNFE";
 
 // Product catalog - intentionally duplicated in client-side JS for simplicity
