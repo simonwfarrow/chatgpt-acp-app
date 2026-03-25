@@ -47,3 +47,11 @@ export interface LineItem {
 		};
 	};
 }
+
+export interface CheckoutSessionState {
+	checkoutSessionId: string;
+	currency: string;
+	totalAmount: number;
+	lineItems: LineItem[];
+	status: "ready_for_payment" | "completed" | "failed";
+}

@@ -8,12 +8,13 @@ import {
 import { PRODUCTS, SHOP_HTML } from "./constants";
 import { logger } from "./logger";
 import {
+	type CheckoutSessionState,
 	completeCheckoutSchema,
 	createCheckoutSessionSchema,
 	type LineItem,
 } from "./types";
 
-export class MyMCP extends Agent<Env> {
+export class MyMCP extends Agent<any> {
 	server = new McpServer({
 		name: "shop-app",
 		version: "0.1.0",
@@ -254,6 +255,19 @@ export class MyMCP extends Agent<Env> {
 					],
 				};
 
+				const sessionState: CheckoutSessionState = {
+					checkoutSessionId: session.id,
+					currency: session.currency,
+					totalAmount: totalAmount,
+					lineItems: line_items,
+					status: "ready_for_payment",
+				};
+
+				await this.ctx.storage.put(
+					`checkout-session-${session.id}`,
+					sessionState,
+				);
+
 				const result = {
 					content: [
 						{ type: "text" as const, text: "Checkout session created" },
@@ -305,6 +319,40 @@ export class MyMCP extends Agent<Env> {
 					},
 				});
 
+				const storedSession = (await this.ctx.storage.get(
+					`checkout-session-${checkout_session_id}`,
+				)) as CheckoutSessionState | undefined;
+
+				if (!storedSession) {
+					const errorResult = {
+						content: [
+							{
+								type: "text" as const,
+								text: "Checkout session not found",
+							},
+						],
+						structuredContent: {
+							id: checkout_session_id,
+							status: "failed",
+							error: {
+								code: "session_not_found",
+								message:
+									"Checkout session expired or does not exist. Please create a new session.",
+							},
+						},
+						isError: true,
+					};
+
+					const durationMs = Date.now() - startTime;
+					toolLog.logToolResult("complete_checkout", errorResult, durationMs);
+					toolLog.warn("checkout_session_missing", {
+						message: "Checkout session not found",
+						checkoutSessionId: checkout_session_id,
+					});
+
+					return errorResult;
+				}
+
 				// Build Worldpay Payments API request
 				const worldpayRequest = {
 					transactionReference: checkout_session_id,
@@ -316,8 +364,8 @@ export class MyMCP extends Agent<Env> {
 							sessionHref: payment_data.token,
 						},
 						value: {
-							currency: "USD",
-							amount: 7500, // Hardcoded for POC - matches create_checkout_session
+							currency: storedSession.currency,
+							amount: storedSession.totalAmount,
 						},
 						narrative: {
 							line1: "Worldpay Swag Shop",
@@ -383,6 +431,14 @@ export class MyMCP extends Agent<Env> {
 					);
 
 					if (!response.ok || result.outcome !== "authorized") {
+						await this.ctx.storage.put(
+							`checkout-session-${checkout_session_id}`,
+							{
+								...storedSession,
+								status: "failed",
+							},
+						);
+
 						const errorResult = {
 							content: [
 								{
@@ -414,6 +470,13 @@ export class MyMCP extends Agent<Env> {
 
 					// Payment successful
 					const orderId = `order_${Math.random().toString(36).slice(2)}`;
+					await this.ctx.storage.put(
+						`checkout-session-${checkout_session_id}`,
+						{
+							...storedSession,
+							status: "completed",
+						},
+					);
 					const successResult = {
 						content: [
 							{ type: "text" as const, text: `Order completed: ${orderId}` },
@@ -445,6 +508,14 @@ export class MyMCP extends Agent<Env> {
 						context: { checkoutSessionId: checkout_session_id },
 					});
 
+					await this.ctx.storage.put(
+						`checkout-session-${checkout_session_id}`,
+						{
+							...storedSession,
+							status: "failed",
+						},
+					);
+
 					const errorResult = {
 						content: [
 							{ type: "text" as const, text: "Payment processing failed" },
@@ -469,7 +540,7 @@ export class MyMCP extends Agent<Env> {
 }
 
 export default {
-	async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+	async fetch(request: Request, env: any, _ctx: ExecutionContext) {
 		const requestId = crypto.randomUUID();
 		const startTime = Date.now();
 		const url = new URL(request.url);
@@ -521,7 +592,10 @@ export default {
 
 			// Use a fixed session ID for the Agent itself to ensure all requests route to the same DO instance
 			// The individual MCP sessions are multiplexed inside this DO instance
-			const agent = await getAgentByName(env.MCP_OBJECT, "global-session");
+			const agent = (await (getAgentByName as any)(
+				env.MCP_OBJECT,
+				"global-session",
+			)) as any;
 			const response = await agent.onMcpRequest(agentRequest);
 
 			const durationMs = Date.now() - startTime;
