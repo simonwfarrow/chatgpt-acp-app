@@ -4,9 +4,13 @@
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"deploy:acme-demo": "node scripts/set-customer.mjs acme-demo && wrangler deploy --config wrangler.acme-demo.jsonc --secrets-file .dev.vars",
+		"deploy:worldpay": "node scripts/set-customer.mjs worldpay && wrangler deploy --config wrangler.worldpay.jsonc --secrets-file .dev.vars",
+		"deploy:newell": "node scripts/set-customer.mjs newell && wrangler deploy --config wrangler.newell.jsonc --secrets-file .dev.vars",
 		"dev": "wrangler dev",
 		"format": "biome format --write",
 		"lint:fix": "biome lint --fix",
+		"set-customer": "node scripts/set-customer.mjs",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit"
@@ -19,6 +23,6 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.10",
 		"typescript": "5.9.3",
-		"wrangler": "^4.56.0"
+		"wrangler": "^4.84.1"
 	}
 }

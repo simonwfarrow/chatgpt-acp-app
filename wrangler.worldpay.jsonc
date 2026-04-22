@@ -1,0 +1,30 @@
+// Customer: worldpay — deploy with: wrangler deploy --config wrangler.worldpay.jsonc
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "chatgpt-acp-app",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-03-10",
+	"compatibility_flags": ["nodejs_compat"],
+	"vars": {
+		"WORLDPAY_API_KEY": "",
+		"CHALLENGE_CONTENT": "",
+		"MERCHANT_ID": ""
+	},
+	"migrations": [
+		{
+			"new_sqlite_classes": ["MyMCP"],
+			"tag": "v1"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "MyMCP",
+				"name": "MCP_OBJECT"
+			}
+		]
+	},
+	"observability": {
+		"enabled": true
+	}
+}
