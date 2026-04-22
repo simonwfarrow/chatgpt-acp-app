@@ -48,3 +48,74 @@ Update with this configuration:
 ```
 
 Restart Claude and you should see the tools become available. 
+
+---
+
+## Customer Profiles
+
+Each demo is driven by a **customer profile** — a single TypeScript config file that controls the entire storefront: brand copy, product catalog, theme colors, payment settings, and widget metadata. Switching customers takes one command.
+
+### Deploying a customer
+
+```bash
+# Deploy the Worldpay demo
+npm run deploy:worldpay
+
+# Deploy the Acme Tech Store demo
+npm run deploy:acme-demo
+```
+
+Each deploy command automatically updates `src/customer.ts` to point to the correct profile, then runs `wrangler deploy` with the matching config file.
+
+### Local development
+
+To switch the active customer without deploying (e.g. for `npm run dev`):
+
+```bash
+npm run set-customer worldpay
+npm run set-customer acme-demo
+```
+
+This rewrites `src/customer.ts` to import from the named profile folder. Commit the updated `src/customer.ts` to lock in a customer for CI/CD deploys.
+
+### Adding a new customer
+
+1. Copy an existing profile as a starting point:
+   ```bash
+   cp -r customers/worldpay customers/<new-id>
+   ```
+2. Edit `customers/<new-id>/config.ts` — fill in all fields in the `CustomerConfig` object.
+3. Update `storefront.workerDomain` to the Cloudflare Workers URL for this customer (e.g. `https://<new-id>-acp-app.<account>.workers.dev`).
+4. Copy a wrangler config and update the worker name:
+   ```bash
+   cp wrangler.worldpay.jsonc wrangler.<new-id>.jsonc
+   # Edit wrangler.<new-id>.jsonc → set "name": "<new-id>-acp-app"
+   ```
+5. Add a deploy script to `package.json`:
+   ```json
+   "deploy:<new-id>": "node scripts/set-customer.mjs <new-id> && wrangler deploy --config wrangler.<new-id>.jsonc"
+   ```
+6. Set Cloudflare secrets (see below), then run `npm run deploy:<new-id>`.
+
+### CustomerConfig schema
+
+| Section | Fields | Description |
+|---------|--------|-------------|
+| `brand` | `title`, `subtitle`, `cartLabel`, `checkoutButtonText`, `emptyCartText` | UI copy shown in the storefront |
+| `products` | `id`, `name`, `description`, `price.amount` (dollars), `price.currency`, `imageBase64?` | Product catalog — drives both the shop UI and server-side checkout |
+| `theme` | `primaryColor`, `primaryFocusColor`, `primaryHighlightColor`, `primarySubtleColor`, `fontFamilyDisplay`, `fontFamilyDefault` | Brand colours and fonts injected as CSS custom properties |
+| `storefront` | `workerDomain`, `widgetTitle`, `termsUrl`, `privacyUrl` | Widget CSP domain, MCP resource title, and legal links |
+| `payment` | `narrative`, `merchantEntity`, `currency`, `apiVersion` | Worldpay payment instruction fields |
+| `challengeContent` | `string` | **Dev-time fallback only.** Production always reads `env.CHALLENGE_CONTENT`. Leave as `""` in committed configs. |
+
+### Cloudflare secrets
+
+Each deployed worker needs its own secrets. Set them with:
+
+```bash
+wrangler secret put WORLDPAY_API_KEY --config wrangler.<id>.jsonc
+wrangler secret put CHALLENGE_CONTENT --config wrangler.<id>.jsonc
+wrangler secret put MERCHANT_ID       --config wrangler.<id>.jsonc
+```
+
+> ⚠️ Never commit real values for `WORLDPAY_API_KEY`, `CHALLENGE_CONTENT`, or `MERCHANT_ID` to source control. The `vars` blocks in wrangler config files intentionally contain empty strings as placeholders.

@@ -5,7 +5,8 @@ import {
 	type TransportState,
 	WorkerTransport,
 } from "agents/mcp";
-import { PRODUCTS, SHOP_HTML } from "./constants";
+import { buildShopHtml, getProducts } from "./constants";
+import { activeConfig } from "./customer";
 import { logger } from "./logger";
 import {
 	type CheckoutSessionState,
@@ -105,29 +106,28 @@ export class MyMCP extends Agent<any> {
 		super(ctx, env);
 
 		this.server.registerResource(
-			"Open Worldpay Swag Shop",
+			activeConfig.storefront.widgetTitle,
 			"ui://widget/shop.html",
 			{},
 			async () => {
 				logger.info("mcp_resource_accessed", {
-					context: { resourceName: "Open Worldpay Swag Shop" },
+					context: { resourceName: activeConfig.storefront.widgetTitle },
 				});
 				return {
 					contents: [
 						{
 							uri: "ui://widget/shop.html",
 							mimeType: "text/html+skybridge",
-							text: SHOP_HTML,
+							text: buildShopHtml(activeConfig),
 							_meta: {
 								"openai/widgetPrefersBorder": true,
-								"openai/widgetDomain":
-									"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+								"openai/widgetDomain": activeConfig.storefront.workerDomain,
 								"openai/widgetCSP": {
 									connect_domains: [
-										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+										activeConfig.storefront.workerDomain,
 									],
 									resource_domains: [
-										"https://chatgpt-acp-app.simonwfarrow.workers.dev",
+										activeConfig.storefront.workerDomain,
 									],
 								},
 							},
@@ -166,7 +166,7 @@ export class MyMCP extends Agent<any> {
 					// Build from cart
 					let lineItemIndex = 1;
 					for (const [productId, quantity] of Object.entries(cart)) {
-						const product = PRODUCTS.find((p) => p.id === productId);
+						const product = getProducts(activeConfig).find((p) => p.id === productId);
 						if (product && quantity > 0) {
 							const priceInCents = Math.round(product.price * 100);
 							const itemTotal = priceInCents * quantity;
@@ -184,7 +184,7 @@ export class MyMCP extends Agent<any> {
 									description: product.name,
 									price: {
 										amount: priceInCents,
-										currency: "USD",
+										currency: activeConfig.payment.currency,
 									},
 								},
 							});
@@ -193,46 +193,30 @@ export class MyMCP extends Agent<any> {
 						}
 					}
 				} else {
-					// Default bundle (backward compatibility)
-					line_items = [
-						{
-							id: "li_1",
+					// Default bundle derived from active customer config
+					const defaultProducts = getProducts(activeConfig);
+					line_items = defaultProducts.map((product, idx) => {
+						const priceInCents = Math.round(product.price * 100);
+						return {
+							id: `li_${idx + 1}`,
 							quantity: 1,
-							base_amount: 5000,
-							subtotal: 5000,
-							total_amount: 5000,
-							total: 5000,
+							base_amount: priceInCents,
+							subtotal: priceInCents,
+							total_amount: priceInCents,
+							total: priceInCents,
 							item: {
-								id: "prod_hoodie",
-								name: "Worldpay Hoodie",
+								id: product.id,
+								name: product.name,
 								quantity: 1,
-								description: "Cozy developer hoodie",
+								description: product.name,
 								price: {
-									amount: 5000,
-									currency: "USD",
+									amount: priceInCents,
+									currency: activeConfig.payment.currency,
 								},
 							},
-						},
-						{
-							id: "li_2",
-							quantity: 1,
-							base_amount: 2500,
-							subtotal: 2500,
-							total_amount: 2500,
-							total: 2500,
-							item: {
-								id: "prod_tshirt",
-								name: "Worldpay T-Shirt",
-								quantity: 1,
-								description: "Classic logo tee",
-								price: {
-									amount: 2500,
-									currency: "USD",
-								},
-							},
-						},
-					];
-					totalAmount = 7500;
+						};
+					});
+					totalAmount = line_items.reduce((sum, li) => sum + li.total_amount, 0);
 				}
 
 				const session = {
@@ -242,17 +226,17 @@ export class MyMCP extends Agent<any> {
 						merchant_id: this.env.MERCHANT_ID,
 						supported_payment_methods: ["card"],
 					},
-					status: "ready_for_payment",
-					currency: "USD",
+				status: "ready_for_payment",
+				currency: activeConfig.payment.currency,
 					payment_mode: "test",
 					line_items: line_items,
 					totals: [
 						{ type: "total", display_text: "Total", amount: totalAmount },
 					],
-					links: [
-						{ type: "terms_of_use", url: "https://example.com/terms" },
-						{ type: "privacy_policy", url: "https://example.com/privacy" },
-					],
+				links: [
+					{ type: "terms_of_use", url: activeConfig.storefront.termsUrl },
+					{ type: "privacy_policy", url: activeConfig.storefront.privacyUrl },
+				],
 				};
 
 				const sessionState: CheckoutSessionState = {
@@ -356,7 +340,7 @@ export class MyMCP extends Agent<any> {
 				// Build Worldpay Payments API request
 				const worldpayRequest = {
 					transactionReference: checkout_session_id,
-					merchant: { entity: "default" },
+					merchant: { entity: activeConfig.payment.merchantEntity },
 					instruction: {
 						method: "card",
 						paymentInstrument: {
@@ -367,9 +351,9 @@ export class MyMCP extends Agent<any> {
 							currency: storedSession.currency,
 							amount: storedSession.totalAmount,
 						},
-						narrative: {
-							line1: "Worldpay Swag Shop",
-						},
+					narrative: {
+						line1: activeConfig.payment.narrative,
+					},
 						...(buyer?.email && {
 							customer: { email: buyer.email },
 						}),
@@ -394,20 +378,20 @@ export class MyMCP extends Agent<any> {
 								},
 							},
 						},
-						{
-							"Content-Type": "application/json",
-							Authorization: "[REDACTED]",
-							"WP-Api-Version": "2024-06-01",
-						},
+					{
+						"Content-Type": "application/json",
+						Authorization: "[REDACTED]",
+						"WP-Api-Version": activeConfig.payment.apiVersion,
+					},
 					);
 
 					const response = await fetch(worldpayUrl, {
 						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							Authorization: `Basic ${this.env.WORLDPAY_API_KEY}`,
-							"WP-Api-Version": "2024-06-01",
-						},
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Basic ${this.env.WORLDPAY_API_KEY}`,
+						"WP-Api-Version": activeConfig.payment.apiVersion,
+					},
 						body: JSON.stringify(worldpayRequest),
 					});
 
@@ -483,8 +467,8 @@ export class MyMCP extends Agent<any> {
 						],
 						structuredContent: {
 							id: checkout_session_id,
-							status: "completed",
-							currency: "USD",
+						status: "completed",
+						currency: activeConfig.payment.currency,
 							order: {
 								id: orderId,
 								checkout_session_id: checkout_session_id,
